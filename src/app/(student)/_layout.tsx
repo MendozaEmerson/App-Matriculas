@@ -9,7 +9,7 @@ export default function StudentLayout() {
       tabBarStyle: { paddingBottom: 5, paddingTop: 5 }
     }}>
       <Tabs.Screen
-        name="home"
+        name="index"
         options={{
           title: 'Mis Cursos',
           tabBarIcon: ({ color }) => <BookOpen size={24} color={color} />,
@@ -18,8 +18,8 @@ export default function StudentLayout() {
       <Tabs.Screen
         name="enroll"
         options={{
-          title: 'Matrícula',
-          headerShown: false, 
+          title: 'Matricularse',
+          headerShown: true, 
           tabBarIcon: ({ color }) => <CalendarPlus size={24} color={color} />,
         }}
       />

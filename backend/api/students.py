@@ -7,8 +7,14 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from models.student import Student
 import io
+import base64
+from pydantic import BaseModel
 
 router = APIRouter()
+
+class UploadBase64Request(BaseModel):
+    filename: str
+    base64_data: str
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -50,6 +56,18 @@ def clean_string(text):
     text = str(text).strip().lower()
     return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
 
+@router.post("/upload_b64")
+async def upload_students_b64(request: UploadBase64Request, db: Session = Depends(get_db)):
+    if not request.filename.endswith('.xlsx'):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos Excel (.xlsx)")
+        
+    try:
+        contents = base64.b64decode(request.base64_data)
+        return _process_students_excel(contents, request.filename, db)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")
+
 @router.post("/upload")
 async def upload_students(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
@@ -60,8 +78,13 @@ async def upload_students(file: UploadFile = File(...), db: Session = Depends(ge
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos Excel (.xlsx)")
         
     contents = await file.read()
-    
     try:
+        return _process_students_excel(contents, file.filename, db)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")
+
+def _process_students_excel(contents: bytes, filename: str, db: Session):
         df = pd.read_excel(BytesIO(contents))
         students_created = 0
         
@@ -107,10 +130,7 @@ async def upload_students(file: UploadFile = File(...), db: Session = Depends(ge
                 
         db.commit()
         return {
-            "filename": file.filename, 
+            "filename": filename, 
             "status": "success", 
             "message": f"Procesamiento exitoso: Se registraron {students_created} estudiantes nuevos en la base de datos."
         }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")
