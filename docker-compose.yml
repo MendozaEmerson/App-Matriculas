@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  api:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: matriculas_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      # Ignorar la sobrescritura del entorno virtual local dentro del contenedor
+      - /app/venv
+    restart: always
+    environment:
+      - TZ=America/Lima
