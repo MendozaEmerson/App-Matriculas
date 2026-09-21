@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import Column, Integer, String, JSON
 from core.database import Base
 
 class Student(Base):
@@ -13,5 +12,5 @@ class Student(Base):
     maternal_surname = Column(String)
     institutional_email = Column(String, unique=True, index=True)
     
-    # Lista de los códigos de los cursos teóricos inscritos (Ej: ["1702134", "1702135"])
-    enrolled_course_codes = Column(ARRAY(String))
+    # Lista de los códigos de los cursos teóricos inscritos (Guardado como JSON en SQLite)
+    enrolled_course_codes = Column(JSON)

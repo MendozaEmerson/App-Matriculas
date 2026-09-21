@@ -1,18 +1,120 @@
-from fastapi import APIRouter, File, UploadFile, Depends
+import pandas as pd
+from io import BytesIO
+from fastapi import APIRouter, File, UploadFile, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from core.database import get_db
+from models.course import Course, CourseGroup
+import io
 
 router = APIRouter()
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+
+@router.get("/template")
+def download_courses_template():
+    """Genera y descarga una plantilla Excel para subir cursos"""
+    df = pd.DataFrame(columns=[
+        'Código Teórico', 'Código Laboratorio', 'Nombre', 'Año', 
+        'Semestre', 'Grupo', 'Horario', 'Vacantes'
+    ])
+    
+    stream = io.BytesIO()
+    with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Cursos')
+        worksheet = writer.sheets['Cursos']
+        
+        # Ajustar anchos y estilizar la cabecera (Tabla azul)
+        for i, col in enumerate(df.columns, 1):
+            col_letter = chr(64 + i)
+            worksheet.column_dimensions[col_letter].width = len(col) + 8
+            
+            cell = worksheet.cell(row=1, column=i)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid") # Azul Tailwind
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+    stream.seek(0)
+    
+    return StreamingResponse(
+        stream, 
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=plantilla_cursos.xlsx"}
+    )
 
 @router.post("/upload")
 async def upload_courses(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Recibe un archivo Excel (.xlsx) o PDF (.pdf).
-    Extraerá: año, semestre, vacantes, código único (7 digitos), lab, y grupos.
+    Recibe un archivo Excel (.xlsx).
+    Agrupa los cursos y sus grupos (A, B, C...) insertándolos en la base de datos local SQLite.
     """
-    # TODO: Implementar extracción de datos con pandas/pdfplumber
-    return {
-        "filename": file.filename, 
-        "status": "success", 
-        "message": "Archivo de cursos recibido."
-    }
+    if not file.filename.endswith('.xlsx'):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos Excel (.xlsx)")
+        
+    contents = await file.read()
+    
+    try:
+        # Leemos el Excel en memoria con Pandas
+        df = pd.read_excel(BytesIO(contents))
+        
+        courses_created = 0
+        groups_created = 0
+        
+        for index, row in df.iterrows():
+            # Intentamos leer varias posibles formas en que venga el nombre de la columna
+            theoretical_code = str(row.get('Código Teórico', row.get('codigo_teorico', ''))).strip()
+            
+            if not theoretical_code or theoretical_code == 'nan':
+                continue
+                
+            # Validamos si el curso ya existe en la DB
+            course = db.query(Course).filter(Course.theoretical_code == theoretical_code).first()
+            if not course:
+                # Extraemos y convertimos la información a número donde corresponda
+                year_val = row.get('Año', row.get('year', 1))
+                semester_val = row.get('Semestre', row.get('semester', 1))
+                
+                course = Course(
+                    theoretical_code=theoretical_code,
+                    lab_code=str(row.get('Código Laboratorio', row.get('codigo_laboratorio', ''))).strip(),
+                    name=str(row.get('Nombre', row.get('name', ''))).strip(),
+                    year=int(year_val) if not pd.isna(year_val) else 1,
+                    semester=int(semester_val) if not pd.isna(semester_val) else 1
+                )
+                db.add(course)
+                db.flush() # Guarda temporalmente para obtener el course.id autogenerado
+                courses_created += 1
+                
+            # Ahora creamos el grupo asociado a este curso (A, B, C...)
+            group_name = str(row.get('Grupo', row.get('group', 'A'))).strip()
+            existing_group = db.query(CourseGroup).filter(
+                CourseGroup.course_id == course.id,
+                CourseGroup.name == group_name
+            ).first()
+            
+            if not existing_group:
+                vacancies = row.get('Vacantes', row.get('vacancies', 0))
+                vacancies_num = int(vacancies) if not pd.isna(vacancies) else 0
+                
+                group = CourseGroup(
+                    course_id=course.id,
+                    name=group_name,
+                    schedule_range=str(row.get('Horario', row.get('horario', ''))).strip(),
+                    initial_vacancies=vacancies_num,
+                    available_vacancies=vacancies_num
+                )
+                db.add(group)
+                groups_created += 1
+                
+        # Confirmamos todos los cambios en la base de datos
+        db.commit()
+        
+        return {
+            "filename": file.filename, 
+            "status": "success", 
+            "message": f"Procesamiento exitoso: Se guardaron {courses_created} cursos y {groups_created} grupos en la base de datos."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")

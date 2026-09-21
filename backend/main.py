@@ -3,7 +3,7 @@ from core.database import engine, Base
 from models import course, student
 from api import courses, students
 
-# Crear las tablas en la base de datos (PostgreSQL) si no existen
+# Crear las tablas en la base de datos si no existen
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="App Matriculas API", description="API para el procesamiento de matrículas y carga masiva de datos.")
