@@ -20,10 +20,13 @@ export function useLoginViewModel() {
     try {
       const userData = await AuthService.login(email.trim().toLowerCase(), cui.trim());
       
-      // Guardar sesión en memoria global
-      authStore.role = userData.role;
-      authStore.cui = userData.cui || '';
-      authStore.firstName = userData.first_name || 'Admin';
+      // Guardar sesión persistente en el dispositivo
+      await authStore.saveSession({
+        role: userData.role,
+        cui: userData.cui || '',
+        firstName: userData.first_name || (userData.role === 'admin' ? 'Administrador' : 'Alumno'),
+        email: email.trim().toLowerCase(),
+      });
 
       // Redirigir según el rol
       if (userData.role === 'admin') {

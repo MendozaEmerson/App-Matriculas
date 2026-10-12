@@ -1,30 +1,75 @@
-import { View, Text, StyleSheet, Button } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { authStore } from '../../store/authStore';
+import { Shield, LogOut, Mail, UserCheck } from 'lucide-react-native';
 
 export default function AdminProfile() {
   const router = useRouter();
 
   const handleLogout = () => {
-    router.replace('/(auth)/login');
+    Alert.alert(
+      'Cerrar Sesión',
+      '¿Estás seguro de que deseas cerrar sesión? Tendrás que volver a ingresar tus credenciales.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Cerrar Sesión',
+          style: 'destructive',
+          onPress: async () => {
+            await authStore.clearSession();
+            router.replace('/(auth)/login');
+          },
+        },
+      ]
+    );
   };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.avatarPlaceholder, { backgroundColor: '#28A745' }]} />
-      <Text style={styles.name}>Admin Sistema</Text>
-      <Text style={styles.role}>Rol: Administrador</Text>
-      
-      <View style={styles.buttonContainer}>
-         <Button title="Cerrar Sesión" color="#FF3B30" onPress={handleLogout} />
+    <View className="flex-1 bg-slate-50 p-6 items-center justify-between">
+      <View className="w-full items-center mt-8">
+        {/* Avatar */}
+        <View className="bg-indigo-600 w-24 h-24 rounded-full items-center justify-center shadow-lg border-4 border-indigo-200 mb-4">
+          <Shield color="white" size={44} />
+        </View>
+
+        <Text className="text-2xl font-black text-slate-800">Administrador</Text>
+        <Text className="text-indigo-600 font-bold text-sm mt-0.5">Control y Gestión UNSA</Text>
+
+        {/* Ficha de Información */}
+        <View className="bg-white rounded-3xl p-6 w-full shadow-sm border border-slate-200 mt-8">
+          <View className="flex-row items-center py-3 border-b border-slate-100">
+            <Mail color="#64748b" size={20} className="mr-3" />
+            <View>
+              <Text className="text-xs font-bold text-slate-400 uppercase">Correo</Text>
+              <Text className="text-base font-bold text-slate-800">
+                {authStore.email || 'admin@unsa.edu.pe'}
+              </Text>
+            </View>
+          </View>
+
+          <View className="flex-row items-center py-3">
+            <UserCheck color="#64748b" size={20} className="mr-3" />
+            <View>
+              <Text className="text-xs font-bold text-slate-400 uppercase">Estado de Sesión</Text>
+              <Text className="text-base font-bold text-emerald-600">
+                Recordar en este dispositivo (Activo)
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Botón Cerrar Sesión */}
+      <View className="w-full mb-8">
+        <TouchableOpacity
+          onPress={handleLogout}
+          className="bg-red-500 py-4 px-6 rounded-2xl flex-row items-center justify-center shadow-md active:bg-red-600"
+        >
+          <LogOut color="white" size={20} className="mr-2" />
+          <Text className="text-white font-black text-base">Cerrar Sesión</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', padding: 20, paddingTop: 40 },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, marginBottom: 20 },
-  name: { fontSize: 22, fontWeight: 'bold' },
-  role: { fontSize: 16, color: '#666', marginTop: 5 },
-  buttonContainer: { marginTop: 40, width: '100%' }
-});
