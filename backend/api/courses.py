@@ -270,8 +270,33 @@ def get_group_details(group_id: int, db: Session = Depends(get_db)):
     enrollments = db.query(Enrollment).filter(Enrollment.course_group_id == group_id).all()
     enrolled_cuis = [e.cui for e in enrollments]
     students = db.query(Student).filter(Student.cui.in_(enrolled_cuis)).all() if enrolled_cuis else []
+    students_by_cui = {s.cui: s for s in students}
     
-    enrolled_count = max(0, group.initial_vacancies - group.available_vacancies)
+    student_list = []
+    for e in enrollments:
+        s = students_by_cui.get(e.cui)
+        if s:
+            student_list.append({
+                "cui": s.cui,
+                "dni": s.dni or e.dni or "",
+                "first_name": s.first_name or "",
+                "last_name": f"{s.paternal_surname or ''} {s.maternal_surname or ''}".strip(),
+                "paternal_surname": s.paternal_surname or "",
+                "maternal_surname": s.maternal_surname or "",
+                "institutional_email": s.institutional_email or ""
+            })
+        else:
+            student_list.append({
+                "cui": e.cui,
+                "dni": e.dni or "",
+                "first_name": "Estudiante",
+                "last_name": f"(CUI: {e.cui})",
+                "paternal_surname": "",
+                "maternal_surname": "",
+                "institutional_email": ""
+            })
+            
+    enrolled_count = len(enrollments)
     
     return {
         "id": group.id,
@@ -285,16 +310,7 @@ def get_group_details(group_id: int, db: Session = Depends(get_db)):
         "available_vacancies": group.available_vacancies,
         "enrolled_count": enrolled_count,
         "is_full": group.available_vacancies <= 0,
-        "students": [
-            {
-                "cui": s.cui,
-                "dni": s.dni,
-                "first_name": s.first_name,
-                "last_name": s.last_name,
-                "institutional_email": s.institutional_email
-            }
-            for s in students
-        ]
+        "students": student_list
     }
 
 @router.put("/groups/{group_id}")

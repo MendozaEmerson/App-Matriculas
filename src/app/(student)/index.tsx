@@ -1,10 +1,17 @@
 import React from 'react';
-import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useStudentCoursesViewModel } from '../../viewmodels/useStudentCoursesViewModel';
-import { AlertCircle, CheckCircle2, BookOpen } from 'lucide-react-native';
+import { AlertCircle, CheckCircle2, BookOpen, ShieldCheck, Download } from 'lucide-react-native';
 
 export default function MisCursosScreen() {
-  const { data, loading } = useStudentCoursesViewModel();
+  const {
+    data,
+    loading,
+    downloadingPdf,
+    canDownloadConstancia,
+    isFullyEnrolled,
+    handleDownloadConstancia,
+  } = useStudentCoursesViewModel();
 
   if (loading && data.pending.length === 0 && data.enrolled.length === 0) {
     return (
@@ -68,6 +75,54 @@ export default function MisCursosScreen() {
           ))
         )}
       </View>
+
+      {/* Sección Descargar Constancia Oficial de Matrícula (PDF) */}
+      {canDownloadConstancia && (
+        <View className="mb-12 bg-white rounded-3xl p-6 border border-emerald-200 shadow-sm">
+          <View className="flex-row items-center mb-3">
+            <View className="bg-emerald-100 p-3 rounded-2xl mr-3">
+              <ShieldCheck color="#059669" size={28} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-xl font-black text-slate-800">
+                {isFullyEnrolled ? '¡Matrícula Completa!' : 'Proceso de Matrícula Concluido'}
+              </Text>
+              <Text className="text-xs font-semibold text-emerald-700 mt-0.5">
+                {isFullyEnrolled
+                  ? 'Has registrado todos tus laboratorios con éxito.'
+                  : 'Las asignaturas pendientes no disponen de vacantes.'}
+              </Text>
+            </View>
+          </View>
+
+          <Text className="text-slate-500 text-sm leading-5 mb-5">
+            Descarga tu constancia oficial con membrete universitario, datos personales y la relación de laboratorios y horarios asignados.
+          </Text>
+
+          <TouchableOpacity
+            onPress={handleDownloadConstancia}
+            disabled={downloadingPdf}
+            className="bg-emerald-600 active:bg-emerald-700 py-4 px-6 rounded-2xl flex-row items-center justify-center shadow-md"
+          >
+            {downloadingPdf ? (
+              <>
+                <ActivityIndicator color="white" size="small" className="mr-3" />
+                <Text className="text-white font-extrabold text-base">
+                  Generando Constancia Oficial...
+                </Text>
+              </>
+            ) : (
+              <>
+                <Download color="white" size={22} className="mr-2" />
+                <Text className="text-white font-extrabold text-base">
+                  Descargar Constancia de Matrícula (PDF)
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </ScrollView>
   );
 }
+
