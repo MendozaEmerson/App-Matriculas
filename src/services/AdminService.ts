@@ -1,8 +1,9 @@
 import { API_URL } from '../config/api_config';
-import { Paths, File, FileSystemUploadType } from 'expo-file-system';
+import { Paths, File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { ApiResponse } from '../models/ApiResponse';
+import { UploadResult, UploadHistoryItem } from '../models/UploadLog';
 
 export class AdminService {
   /**
@@ -45,7 +46,7 @@ export class AdminService {
   /**
    * Sube el archivo Excel al backend enviándolo de forma nativa
    */
-  static async uploadData(type: 'courses' | 'students', fileAsset: any): Promise<ApiResponse> {
+  static async uploadData(type: 'courses' | 'students', fileAsset: any): Promise<UploadResult> {
     const uploadUrl = `${API_URL}/api/${type}/upload_b64`;
     
     // Leemos el archivo usando el motor nativo de JS y lo convertimos a Blob
@@ -84,6 +85,22 @@ export class AdminService {
       throw new Error(json.detail || 'Error desconocido en el servidor');
     }
 
-    return json as ApiResponse;
+    return json as UploadResult;
+  }
+
+  /**
+   * Obtiene el historial de auditoría de subidas previas
+   */
+  static async getUploadHistory(type: 'courses' | 'students'): Promise<UploadHistoryItem[]> {
+    try {
+      const response = await fetch(`${API_URL}/api/${type}/upload_history`);
+      if (!response.ok) {
+        return [];
+      }
+      return await response.json();
+    } catch (e) {
+      console.error(`Error al obtener historial de ${type}:`, e);
+      return [];
+    }
   }
 }

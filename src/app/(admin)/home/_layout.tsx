@@ -6,6 +6,7 @@ export default function HomeStack() {
       <Stack.Screen name="index" />
       <Stack.Screen name="year/[year]" />
       <Stack.Screen name="course/[id]" />
+      <Stack.Screen name="group/[id]" />
     </Stack>
   );
 }

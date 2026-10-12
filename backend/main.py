@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.database import engine, Base
-from models import course, student, enrollment
+from models import course, student, enrollment, upload_log
 from api import courses, students, auth, summary, enrollments
 
 # Crear las tablas en la base de datos si no existen
