@@ -1,5 +1,6 @@
 import pandas as pd
 from io import BytesIO
+import unicodedata
 from fastapi import APIRouter, File, UploadFile, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -90,6 +91,20 @@ async def upload_courses(file: UploadFile = File(...), db: Session = Depends(get
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")
 
+def _find_col_val(row, candidate_names):
+    """Busca el valor de una columna admitiendo múltiples variantes de nombres (sin distinguir mayúsculas/espacios/tildes)"""
+    def normalize(s):
+        s = unicodedata.normalize('NFKD', str(s)).encode('ASCII', 'ignore').decode('utf-8')
+        return "".join(s.lower().split())
+
+    norm_candidates = [normalize(c) for c in candidate_names]
+    for key, val in row.items():
+        if normalize(key) in norm_candidates:
+            if pd.notna(val):
+                return str(val).strip()
+            return ""
+    return ""
+
 def _process_courses_excel(contents: bytes, filename: str, db: Session):
     # Leemos el Excel en memoria con Pandas
     df = pd.read_excel(BytesIO(contents))
@@ -101,45 +116,71 @@ def _process_courses_excel(contents: bytes, filename: str, db: Session):
     duplicated_items = []
     
     for index, row in df.iterrows():
-        # Buscar el código teórico con múltiples posibles nombres
-        theoretical_code = str(row.get('Código Teórico', row.get('codigo_teorico', row.get('Codigo Curso Teorico', '')))).strip()
+        theoretical_code = _find_col_val(row, [
+            'Codigo Curso Teorico', 'Codigo Teorico', 'codigo_teorico', 'cod_teorico', 'theoretical_code'
+        ])
         
         if not theoretical_code or theoretical_code == 'nan':
             continue
             
-        course_name = str(row.get('Nombre', row.get('name', row.get('Nombre del Curso', '')))).strip()
+        course_name = _find_col_val(row, [
+            'Nombre del Curso', 'Nombre', 'name', 'nombre_curso', 'asignatura'
+        ])
         if not course_name or course_name == 'nan':
             course_name = f"Curso {theoretical_code}"
+            
+        lab_code = _find_col_val(row, [
+            'Codigo Curso Lab', 'Codigo Curso Laboratorio', 'Codigo Laboratorio', 'codigo_lab', 'codigo_laboratorio', 'lab_code'
+        ])
+        if lab_code == 'nan':
+            lab_code = ''
+            
+        year_str = _find_col_val(row, ['Ano', 'Año', 'year', 'ciclo'])
+        semester_str = _find_col_val(row, ['Semestre', 'semester', 'sem'])
+        
+        try:
+            year_val = int(year_str) if year_str else 1
+        except ValueError:
+            year_val = 1
+            
+        try:
+            semester_val = int(semester_str) if semester_str else 1
+        except ValueError:
+            semester_val = 1
             
         # Validamos si el curso ya existe en la DB
         course = db.query(Course).filter(Course.theoretical_code == theoretical_code).first()
         if course:
+            # Sincronización Inteligente: actualizar nombre, lab_code y datos del curso existente
+            if course_name and course_name != f"Curso {theoretical_code}":
+                course.name = course_name
+            if lab_code: # Si en el Excel viene código de lab, se actualiza
+                course.lab_code = lab_code
+            course.year = year_val
+            course.semester = semester_val
+            
             duplicated_courses_count += 1
             duplicated_items.append({
                 "identifier": theoretical_code,
-                "name": course.name or course_name,
-                "reason": "Asignatura ya registrada previamente en el sistema"
+                "name": course.name,
+                "reason": "Asignatura ya registrada (datos y grupos sincronizados)"
             })
         else:
-            year_val = row.get('Año', row.get('year', 1))
-            semester_val = row.get('Semestre', row.get('semester', 1))
-            lab_code = str(row.get('Código Laboratorio', row.get('codigo_laboratorio', row.get('Codigo Curso Laboratorio', '')))).strip()
-            
             course = Course(
                 theoretical_code=theoretical_code,
-                lab_code=lab_code if lab_code != 'nan' else '',
+                lab_code=lab_code,
                 name=course_name,
-                year=int(year_val) if not pd.isna(year_val) else 1,
-                semester=int(semester_val) if not pd.isna(semester_val) else 1
+                year=year_val,
+                semester=semester_val
             )
             db.add(course)
             db.flush()
             courses_created += 1
             
-        # Extraer grupos, horarios y vacantes (pueden venir separados por comas)
-        groups_raw = str(row.get('Grupo', row.get('Grupos', row.get('group', 'A')))).strip()
-        schedules_raw = str(row.get('Horario', row.get('Horario por Grupo', row.get('horario', '')))).strip()
-        vacancies_raw = str(row.get('Vacantes', row.get('Vacantes por Grupo', row.get('vacancies', '0')))).strip()
+        # Extraer grupos, horarios y vacantes
+        groups_raw = _find_col_val(row, ['Grupos', 'Grupo', 'group', 'groups'])
+        schedules_raw = _find_col_val(row, ['Horario por Grupo', 'Horario', 'horario', 'schedules'])
+        vacancies_raw = _find_col_val(row, ['Vacantes por Grupo', 'Vacantes', 'vacancies', 'cupos'])
         
         groups_list = [g.strip() for g in groups_raw.split(',')] if groups_raw and groups_raw != 'nan' else []
         schedules_list = [s.strip() for s in schedules_raw.split(',')] if schedules_raw and schedules_raw != 'nan' else []
@@ -171,6 +212,13 @@ def _process_courses_excel(contents: bytes, filename: str, db: Session):
                 )
                 db.add(group)
                 groups_created += 1
+            else:
+                # Si el grupo ya existía, sincronizar horario y cupos si no han sido modificados
+                if schedule:
+                    existing_group.schedule_range = schedule
+                if vacancies_num > 0 and existing_group.initial_vacancies == 0:
+                    existing_group.initial_vacancies = vacancies_num
+                    existing_group.available_vacancies = vacancies_num
             
     # Guardar log de auditoría
     upload_log = UploadLog(
