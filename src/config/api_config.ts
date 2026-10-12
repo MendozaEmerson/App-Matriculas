@@ -1,4 +1,4 @@
 // Configuración centralizada de la API
-// Usa tu IP de red local para que el celular físico o emulador pueda comunicarse con FastAPI
+// Apunta al servidor VPS de producción en el puerto 8008
 
-export const API_URL = "http://192.168.18.88:8000";
+export const API_URL = "http://194.163.144.149:8008";

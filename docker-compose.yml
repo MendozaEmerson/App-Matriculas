@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: matriculas_backend
     ports:
-      - "8000:8000"
+      - "8008:8000"
     volumes:
       - ./backend:/app
       # Ignorar la sobrescritura del entorno virtual local dentro del contenedor
