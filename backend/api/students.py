@@ -85,6 +85,20 @@ async def upload_students(file: UploadFile = File(...), db: Session = Depends(ge
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error procesando el Excel: {str(e)}")
 
+def _find_col_val(row, candidate_names):
+    """Busca el valor de una columna admitiendo múltiples variantes de nombres (sin distinguir mayúsculas/espacios/tildes)"""
+    def normalize(s):
+        s = unicodedata.normalize('NFKD', str(s)).encode('ASCII', 'ignore').decode('utf-8')
+        return "".join(s.lower().split())
+
+    norm_candidates = [normalize(c) for c in candidate_names]
+    for key, val in row.items():
+        if normalize(key) in norm_candidates:
+            if pd.notna(val):
+                return str(val).strip()
+            return ""
+    return ""
+
 def _process_students_excel(contents: bytes, filename: str, db: Session):
     df = pd.read_excel(BytesIO(contents))
     
@@ -94,44 +108,68 @@ def _process_students_excel(contents: bytes, filename: str, db: Session):
     duplicated_items = []
     
     for index, row in df.iterrows():
-        cui = str(row.get('CUI', row.get('cui', ''))).strip()
+        cui_raw = _find_col_val(row, ['CUI', 'cui', 'codigo', 'codigo_alumno', 'cui_estudiante'])
         
-        # Validamos que sea de 8 dígitos según lo indicado
-        if not cui or cui == 'nan' or len(cui) != 8:
+        # Limpiar punto decimal si viene como número flotante de Excel (ej: 12345678.0)
+        if '.' in cui_raw:
+            cui = cui_raw.split('.')[0].strip()
+        else:
+            cui = cui_raw.strip()
+            
+        if not cui or cui == 'nan':
             continue
+            
+        # Asegurar 8 dígitos rellenando con ceros si fuera necesario
+        if len(cui) < 8 and cui.isdigit():
+            cui = cui.zfill(8)
+            
+        first_name = _find_col_val(row, ['Nombres', 'nombres', 'nombre', 'first_name'])
+        paternal = _find_col_val(row, ['Apellido Paterno', 'apellido_paterno', 'paterno', 'primer_apellido'])
+        maternal = _find_col_val(row, ['Apellido Materno', 'apellido_materno', 'materno', 'segundo_apellido'])
+        dni_raw = _find_col_val(row, ['DNI', 'dni', 'documento'])
+        dni = dni_raw.split('.')[0].strip() if '.' in dni_raw else dni_raw.strip()
+        
+        # Correo Institucional
+        email = _find_col_val(row, ['Correo Institucional', 'Correo', 'correo', 'email', 'correo_institucional'])
+        if not email or email == 'nan':
+            first_letter = clean_string(first_name)[0] if first_name else ''
+            clean_pat = clean_string(paternal)
+            email = f"{first_letter}{clean_pat}@unsa.edu.pe"
+            
+        # Cursos teóricos inscritos
+        courses_raw = _find_col_val(row, ['Codigos cursos inscritos', 'Codigos cursos', 'cursos_inscritos', 'cursos', 'asignaturas'])
+        if courses_raw and courses_raw != 'nan':
+            enrolled_courses = [c.strip() for c in courses_raw.split(',') if c.strip()]
+        else:
+            enrolled_courses = []
             
         student = db.query(Student).filter(Student.cui == cui).first()
         
-        first_name = str(row.get('Nombres', row.get('nombres', ''))).strip()
-        paternal = str(row.get('Apellido Paterno', row.get('apellido_paterno', ''))).strip()
-        maternal = str(row.get('Apellido Materno', row.get('apellido_materno', ''))).strip()
-        full_name = f"{paternal} {maternal} {first_name}".strip() if paternal or first_name else f"Estudiante {cui}"
-        
         if student:
+            # Sincronizar datos si vienen actualizados en el Excel
+            if first_name and first_name != 'nan':
+                student.first_name = first_name
+            if paternal and paternal != 'nan':
+                student.paternal_surname = paternal
+            if maternal and maternal != 'nan':
+                student.maternal_surname = maternal
+            if dni and dni != 'nan':
+                student.dni = dni
+            if email and email != 'nan':
+                student.institutional_email = email
+            if enrolled_courses:
+                student.enrolled_course_codes = enrolled_courses
+                
             duplicated_students_count += 1
             duplicated_items.append({
                 "identifier": cui,
                 "name": f"{student.paternal_surname} {student.first_name}",
-                "reason": "Estudiante con CUI existente en el padrón"
+                "reason": "Estudiante existente en el padrón (datos y cursos sincronizados)"
             })
         else:
-            # Generador automático de correos (Ej: jperez@unsa.edu.pe)
-            email = str(row.get('Correo', row.get('correo', ''))).strip()
-            if not email or email == 'nan':
-                first_letter = clean_string(first_name)[0] if first_name else ''
-                clean_pat = clean_string(paternal)
-                email = f"{first_letter}{clean_pat}@unsa.edu.pe"
-            
-            # Asumimos que los cursos vienen separados por comas en la columna "Codigos cursos inscritos"
-            courses_raw = str(row.get('Codigos cursos inscritos', row.get('cursos_inscritos', ''))).strip()
-            if courses_raw and courses_raw != 'nan':
-                enrolled_courses = [c.strip() for c in courses_raw.split(',')]
-            else:
-                enrolled_courses = []
-            
             student = Student(
                 cui=cui,
-                dni=str(row.get('DNI', row.get('dni', ''))).strip(),
+                dni=dni,
                 first_name=first_name,
                 paternal_surname=paternal,
                 maternal_surname=maternal,

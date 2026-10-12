@@ -28,19 +28,39 @@ export class AdminService {
    * Selecciona un archivo Excel del celular
    */
   static async pickExcelFile() {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel'
-      ],
-      copyToCacheDirectory: true,
-    });
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'application/wps-office.xlsx',
+          '*/*'
+        ],
+        copyToCacheDirectory: true,
+      });
 
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return null;
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return null;
+      }
+
+      const asset = result.assets[0];
+      if (asset.name && !asset.name.toLowerCase().endsWith('.xlsx')) {
+        throw new Error('El archivo seleccionado debe ser un documento de Excel válido (.xlsx).');
+      }
+
+      return asset;
+    } catch (error: any) {
+      if (
+        error.message?.includes('FileNotFoundException') || 
+        error.message?.includes('Cello') ||
+        error.message?.includes('ENOENT')
+      ) {
+        throw new Error(
+          'No se pudo acceder al archivo porque está almacenado en la nube (Google Drive / Sheets). Por favor descárgalo primero en tu teléfono (menú Archivo > Descargar > Microsoft Excel .xlsx) y selecciónalo desde la carpeta "Descargas" de tu almacenamiento local.'
+        );
+      }
+      throw error;
     }
-
-    return result.assets[0];
   }
 
   /**
