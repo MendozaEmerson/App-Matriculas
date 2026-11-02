@@ -52,3 +52,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.sqlite3
+
+# Binaries / Releases
+*.apk
+*.aab
